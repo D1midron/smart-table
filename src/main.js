@@ -22,6 +22,17 @@ const API = initData(sourceData);
  */
 function collectState() {
     const state = processFormData(new FormData(sampleTable.container));
+    
+    // Добавляем rowsPerPage из пагинации, так как он находится вне формы таблицы
+    if (paginationElements.elements.rowsPerPage) {
+        state.rowsPerPage = paginationElements.elements.rowsPerPage.value;
+    }
+    
+    // Добавляем текущую страницу из radio buttons в пагинации
+    const selectedPage = paginationElements.container.querySelector('input[name="page"]:checked');
+    if (selectedPage) {
+        state.page = selectedPage.value;
+    }
 
     return {
         ...state
@@ -50,7 +61,7 @@ async function render(action) {
 const sampleTable = initTable({
     tableTemplate: 'table',
     rowTemplate: 'row',
-    before: [],
+    before: ['header'],
     after: []
 }, render);
 
@@ -87,8 +98,12 @@ sampleTable.filter = filterElements;
 const searchElements = cloneTemplate('search');
 const applySearching = initSearching('search');
 
-// Инициализация сортировки
-const applySorting = initSorting([]);
+// Инициализация сортировки (после создания таблицы, чтобы получить элементы хэдера)
+const sortButtons = [
+    sampleTable.elements.sortByDate,
+    sampleTable.elements.sortByTotal
+].filter(Boolean);
+const applySorting = initSorting(sortButtons);
 
 const appRoot = document.querySelector('#app');
 appRoot.appendChild(searchElements.container);
@@ -97,6 +112,49 @@ appRoot.appendChild(paginationElements.container);
 
 // Добавляем фильтр в таблицу
 sampleTable.container.insertBefore(filterElements.container, sampleTable.container.querySelector('.table-content'));
+
+// Добавляем обработчики для элементов пагинации, так как они находятся вне формы таблицы
+if (paginationElements.elements.rowsPerPage) {
+    paginationElements.elements.rowsPerPage.addEventListener('change', (e) => {
+        render(e.target);
+    });
+}
+
+// Обработчики для кнопок пагинации (first, prev, next, last)
+if (paginationElements.elements.firstPage) {
+    paginationElements.elements.firstPage.addEventListener('click', (e) => {
+        e.preventDefault();
+        render(e.target);
+    });
+}
+
+if (paginationElements.elements.previousPage) {
+    paginationElements.elements.previousPage.addEventListener('click', (e) => {
+        e.preventDefault();
+        render(e.target);
+    });
+}
+
+if (paginationElements.elements.nextPage) {
+    paginationElements.elements.nextPage.addEventListener('click', (e) => {
+        e.preventDefault();
+        render(e.target);
+    });
+}
+
+if (paginationElements.elements.lastPage) {
+    paginationElements.elements.lastPage.addEventListener('click', (e) => {
+        e.preventDefault();
+        render(e.target);
+    });
+}
+
+// Обработчик для клика по номеру страницы (radio button)
+paginationElements.container.addEventListener('change', (e) => {
+    if (e.target && e.target.name === 'page' && e.target.type === 'radio') {
+        render(e.target);
+    }
+});
 
 async function init() {
     const indexes = await API.getIndexes();

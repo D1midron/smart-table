@@ -1,12 +1,14 @@
 export function initFiltering(elements) {
     const updateIndexes = (elements, indexes) => {
         Object.keys(indexes).forEach((elementName) => {
-            elements[elementName].append(...Object.values(indexes[elementName]).map(name => {
-                const el = document.createElement('option');
-                el.textContent = name;
-                el.value = name;
-                return el;
-            }))
+            if (elements[elementName] && elements[elementName].tagName === 'SELECT') {
+                elements[elementName].append(...Object.values(indexes[elementName]).map(name => {
+                    const el = document.createElement('option');
+                    el.textContent = name;
+                    el.value = name;
+                    return el;
+                }))
+            }
         })
     }
 

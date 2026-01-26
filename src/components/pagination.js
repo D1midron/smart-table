@@ -20,6 +20,8 @@ export const initPagination = ({pages, fromRow, toRow, totalRows}, createPage) =
         let page = Math.max(1, Number(state.page || 1));
 
         const paginationActions = new Set(['first', 'prev', 'next', 'last', 'page', 'rowsPerPage']);
+        
+        
         if (actionName && !paginationActions.has(actionName)) {
             page = 1;
         }
@@ -35,9 +37,15 @@ export const initPagination = ({pages, fromRow, toRow, totalRows}, createPage) =
         if (actionName === 'first') page = 1;
         if (actionName === 'prev') page = page - 1;
         if (actionName === 'next') page = page + 1;
-        if (actionName === 'last') page = pageCount;
+        if (actionName === 'last') {
+            // pageCount будет вычислен в updatePagination, но для last мы используем большое число
+            // и потом скорректируем в updatePagination
+            page = 999999;
+        }
 
-        page = Math.max(1, Math.min(pageCount, page));
+        // Не ограничиваем pageCount здесь, так как он еще не известен
+        // Ограничение произойдет в updatePagination
+        page = Math.max(1, page);
 
         return Object.assign({}, query, { // добавим параметры к query, но не изменяем исходный объект
             limit,
@@ -47,10 +55,15 @@ export const initPagination = ({pages, fromRow, toRow, totalRows}, createPage) =
 
     const updatePagination = (total, { page, limit }) => {
         const safeLimit = Math.max(1, Number(limit || 10));
-        const safePage = Math.max(1, Number(page || 1));
+        let safePage = Math.max(1, Number(page || 1));
         const safeTotal = Math.max(0, Number(total || 0));
 
         pageCount = Math.max(1, Math.ceil(safeTotal / safeLimit));
+
+        // Если была нажата кнопка "last" (page = 999999), устанавливаем на последнюю страницу
+        if (safePage >= 999999) {
+            safePage = pageCount;
+        }
 
         const clampedPage = Math.min(pageCount, safePage);
         const hasRows = safeTotal > 0;
@@ -66,11 +79,26 @@ export const initPagination = ({pages, fromRow, toRow, totalRows}, createPage) =
         const pageButtons = nextPages.map((pageNumber) => {
             const label = createPage(pageNumber);
             const input = label.querySelector('input[name="page"]');
-            if (input) input.checked = pageNumber === clampedPage;
+            if (input) {
+                input.checked = pageNumber === clampedPage;
+                input.value = String(pageNumber);
+            }
             return label;
         });
 
         pages.replaceChildren(...pageButtons);
+
+        // Сбрасываем все другие radio buttons со страницами, которые могут быть в форме
+        // Это важно, чтобы при следующем collectState() возвращалась правильная страница
+        const form = pages.closest('form');
+        if (form) {
+            const allPageInputs = form.querySelectorAll('input[name="page"]');
+            allPageInputs.forEach(input => {
+                if (input.value !== String(clampedPage)) {
+                    input.checked = false;
+                }
+            });
+        }
 
         // Важное: `rowsPerPage` — это <select>, он хранится в elements объекта pagination,
         // а не передаётся сюда. Поэтому значение синхронизируется в main.js через state.
