@@ -1,18 +1,37 @@
-import {sortCollection, sortMap} from "../lib/sort.js";
+import {sortMap} from "../lib/sort.js";
 
 export function initSorting(columns) {
-    return (data, state, action) => {
+    return (query, state, action) => {
         let field = null;
         let order = null;
 
         if (action && action.name === 'sort') {
-            // @todo: #3.1 — запомнить выбранный режим сортировки
+            const current = action.getAttribute('data-value') || 'none';
+            const next = sortMap[current] || 'none';
 
-            // @todo: #3.2 — сбросить сортировки остальных колонок
+            action.setAttribute('data-value', next);
+            field = action.getAttribute('data-field');
+            order = next;
+
+            columns
+                .filter((btn) => btn && btn !== action)
+                .forEach((btn) => btn.setAttribute('data-value', 'none'));
         } else {
-            // @todo: #3.3 — получить выбранный режим сортировки
+            const active = columns.find((btn) => btn && (btn.getAttribute('data-value') || 'none') !== 'none');
+            if (active) {
+                field = active.getAttribute('data-field');
+                order = active.getAttribute('data-value') || 'none';
+            }
         }
 
-        return sortCollection(data, field, order);
+        const fieldMap = {
+            total: 'total_amount'
+        };
+
+        const apiField = field ? (fieldMap[field] ?? field) : null;
+
+        return (apiField && order !== 'none')
+            ? Object.assign({}, query, { sort: `${apiField}:${order}` })
+            : query;
     }
 }
