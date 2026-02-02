@@ -27,11 +27,7 @@ export function initData(sourceData = null) {
             let sellersRaw, customersRaw;
 
             if (sourceData) {
-                // используем локальные данные
-                sellersRaw = sourceData.sellers || [];
-                customersRaw = sourceData.customers || [];
-            } else {
-                // запрашиваем данные с API
+                //  запрашиваем данные с API
                 const [sellersRes, customersRes] = await Promise.all([
                     fetch(`${BASE_URL}/sellers`),
                     fetch(`${BASE_URL}/customers`),
@@ -45,6 +41,13 @@ export function initData(sourceData = null) {
                     sellersRes.json(),
                     customersRes.json()
                 ]);
+               
+            } else {
+                // используем локальные данные
+                sellersRaw = sourceData.sellers || [];
+                customersRaw = sourceData.customers || [];
+                
+                
             }
 
             const normalizeArray = (data, fallbackKey) => {
