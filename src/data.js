@@ -3,90 +3,92 @@ import {sortCollection} from "./lib/sort.js";
 
 const BASE_URL = 'https://webinars.webdev.education-services.ru/sp7-api';
 
-export function initData(sourceData = null) {
+// Все данные (начальные, с фильтрами и пагинацией)
+// теперь ВСЕГДА берутся с сервера.
+export function initData() {
     // переменные для кеширования данных
     let sellers;
     let customers;
-    let sellersByName; // обратный индекс: имя -> id
-    let customersByName; // обратный индекс: имя -> id
     let lastResult;
     let lastQuery;
 
     // функция для приведения строк в тот вид, который нужен нашей таблице
-    const mapRecords = (data) => data.map(item => ({
-        id: item.receipt_id,
-        date: item.date,
-        seller: sellers?.[String(item.seller_id)] ?? String(item.seller_id ?? ''),
-        customer: customers?.[String(item.customer_id)] ?? String(item.customer_id ?? ''),
-        total: item.total_amount
-    }));
+    // ВАЖНО: справочники /sellers и /customers в этом API могут приходить:
+    // - как массив объектов [{id, first_name, last_name}, ...]
+    // - или как объект-словарь {"customer_2": "Petr Smirnov", ...}
+    // Поэтому маппинг ищет имя по "ключу" (id) в словаре.
+    const mapRecords = (data) => data.map(item => {
+        // В records ключ может быть в разных полях/форматах: customer_2, seller_5, 5, ...
+        const sellerKey = String(item.seller_id ?? item.seller ?? item.sellerId ?? item.sellerID ?? '');
+        const customerKey = String(item.customer_id ?? item.customer ?? item.customerId ?? item.customerID ?? '');
+
+        const sellerName = sellers?.[sellerKey] ?? '';
+        const customerName = customers?.[customerKey] ?? '';
+
+        return {
+            id: item.receipt_id ?? item.id,
+            date: item.date,
+            seller: sellerName || sellerKey,       // если имени нет — показываем ключ
+            customer: customerName || customerKey, // если имени нет — показываем ключ
+            // приводим к числу, чтобы сортировка по total работала корректно
+            total: Number(item.total_amount ?? item.total ?? 0)
+        };
+    });
 
     // функция получения индексов
     const getIndexes = async () => {
         if (!sellers || !customers) { // если индексы ещё не установлены, то делаем запросы
-            let sellersRaw, customersRaw;
+            // запрашиваем данные с API
+            const [sellersRes, customersRes] = await Promise.all([
+                fetch(`${BASE_URL}/sellers`),
+                fetch(`${BASE_URL}/customers`),
+            ]);
 
-            if (sourceData) {
-                //  запрашиваем данные с API
-                const [sellersRes, customersRes] = await Promise.all([
-                    fetch(`${BASE_URL}/sellers`),
-                    fetch(`${BASE_URL}/customers`),
-                ]);
-
-                if (!sellersRes.ok || !customersRes.ok) {
-                    throw new Error('Не удалось загрузить справочники sellers/customers');
-                }
-
-                [sellersRaw, customersRaw] = await Promise.all([
-                    sellersRes.json(),
-                    customersRes.json()
-                ]);
-               
-            } else {
-                // используем локальные данные
-                sellersRaw = sourceData.sellers || [];
-                customersRaw = sourceData.customers || [];
-                
-                
+            if (!sellersRes.ok || !customersRes.ok) {
+                throw new Error('Не удалось загрузить справочники sellers/customers');
             }
 
-            const normalizeArray = (data, fallbackKey) => {
-                if (Array.isArray(data)) return data;
-                if (data && Array.isArray(data[fallbackKey])) return data[fallbackKey];
-                if (data && Array.isArray(data.items)) return data.items;
-                return [];
+            const [sellersRaw, customersRaw] = await Promise.all([
+                sellersRes.json(),
+                customersRes.json()
+            ]);
+
+            const normalizeIndex = (data, fallbackKey) => {
+                // вариант 1: сервер сразу вернул словарь id -> name
+                if (data && typeof data === 'object' && !Array.isArray(data)) {
+                    // иногда API заворачивает словарь в поле (fallbackKey / items)
+                    if (data[fallbackKey] && typeof data[fallbackKey] === 'object' && !Array.isArray(data[fallbackKey])) {
+                        return data[fallbackKey];
+                    }
+                    if (data.items && typeof data.items === 'object' && !Array.isArray(data.items)) {
+                        return data.items;
+                    }
+                    // "чистый" словарь
+                    return data;
+                }
+
+                // вариант 2: сервер вернул массив объектов — строим словарь сами
+                const normalizeArray = (arrLike) => {
+                    if (Array.isArray(arrLike)) return arrLike;
+                    if (arrLike && Array.isArray(arrLike[fallbackKey])) return arrLike[fallbackKey];
+                    if (arrLike && Array.isArray(arrLike.items)) return arrLike.items;
+                    return [];
+                };
+
+                const arr = normalizeArray(data);
+                return makeIndex(
+                    arr.map(v => ({ ...v, id: String(v.id ?? v[`${fallbackKey}_id`]) })),
+                    'id',
+                    v => `${v.first_name ?? ''} ${v.last_name ?? ''}`.trim()
+                );
             };
 
-            const sellersData = normalizeArray(sellersRaw, 'sellers');
-            const customersData = normalizeArray(customersRaw, 'customers');
-
-            // преобразуем массивы в индексы для быстрого доступа по id
-            sellers = makeIndex(
-                sellersData.map(v => ({ ...v, id: String(v.id) })),
-                'id',
-                v => `${v.first_name} ${v.last_name}`
-            );
-            customers = makeIndex(
-                customersData.map(v => ({ ...v, id: String(v.id) })),
-                'id',
-                v => `${v.first_name} ${v.last_name}`
-            );
-
-            // создаем обратные индексы для поиска по имени
-            sellersByName = {};
-            customersByName = {};
-            sellersData.forEach(v => {
-                const name = `${v.first_name} ${v.last_name}`;
-                sellersByName[name] = String(v.id);
-            });
-            customersData.forEach(v => {
-                const name = `${v.first_name} ${v.last_name}`;
-                customersByName[name] = String(v.id);
-            });
+            sellers = normalizeIndex(sellersRaw, 'sellers');
+            customers = normalizeIndex(customersRaw, 'customers');
         }
 
         return { sellers, customers };
-    }
+    };
 
     // функция получения записей о продажах с сервера
     const getRecords = async (query, isUpdated = false) => {
@@ -100,124 +102,51 @@ export function initData(sourceData = null) {
         // гарантируем, что справочники загружены до маппинга записей
         await getIndexes();
 
-        let records;
-
-        if (sourceData) {
-            // используем локальные данные
-            let items = sourceData.purchase_records || [];
-
-            // Применяем фильтры
-            const filterSeller = query['filter[seller]'];
-            const filterCustomer = query['filter[customer]'];
-            const filterDate = query['filter[date]'];
-            const filterTotalFrom = query['filter[totalFrom]'];
-            const filterTotalTo = query['filter[totalTo]'];
-            const searchQuery = query.search;
-
-            // Фильтрация по продавцу (по имени, нужно найти ID)
-            if (filterSeller && sellersByName) {
-                const sellerId = sellersByName[filterSeller];
-                if (sellerId) {
-                    items = items.filter(item => String(item.seller_id) === sellerId);
-                } else {
-                    items = []; // если имя не найдено, возвращаем пустой массив
-                }
-            }
-
-            // Фильтрация по покупателю (по имени, нужно найти ID)
-            if (filterCustomer && customersByName) {
-                const customerId = customersByName[filterCustomer];
-                if (customerId) {
-                    items = items.filter(item => String(item.customer_id) === customerId);
-                } else {
-                    items = []; // если имя не найдено, возвращаем пустой массив
-                }
-            }
-
-            // Фильтрация по дате
-            if (filterDate) {
-                items = items.filter(item => item.date && item.date.includes(filterDate));
-            }
-
-            // Фильтрация по диапазону суммы
-            if (filterTotalFrom) {
-                const from = Number(filterTotalFrom);
-                if (!isNaN(from)) {
-                    items = items.filter(item => item.total_amount >= from);
-                }
-            }
-            if (filterTotalTo) {
-                const to = Number(filterTotalTo);
-                if (!isNaN(to)) {
-                    items = items.filter(item => item.total_amount <= to);
-                }
-            }
-
-            // Поиск (глобальный поиск по всем полям)
-            if (searchQuery) {
-                const searchLower = searchQuery.toLowerCase();
-                items = items.filter(item => {
-                    const sellerName = sellers?.[String(item.seller_id)] ?? '';
-                    const customerName = customers?.[String(item.customer_id)] ?? '';
-                    return (
-                        (item.date && item.date.toLowerCase().includes(searchLower)) ||
-                        (sellerName && sellerName.toLowerCase().includes(searchLower)) ||
-                        (customerName && customerName.toLowerCase().includes(searchLower)) ||
-                        (item.total_amount && String(item.total_amount).includes(searchLower))
-                    );
-                });
-            }
-
-            // Сначала маппим данные для сортировки
-            let mappedItems = mapRecords(items);
-
-            // Применяем сортировку
-            const sortParam = query.sort;
-            if (sortParam) {
-                const [sortField, sortOrder] = sortParam.split(':');
-                const fieldMap = {
-                    'total_amount': 'total',
-                    'date': 'date'
-                };
-                const mappedField = fieldMap[sortField] || sortField;
-                mappedItems = sortCollection(mappedItems, mappedField, sortOrder);
-            }
-
-            // Применяем пагинацию
-            const limit = Number(query.limit) || 10;
-            const page = Number(query.page) || 1;
-            const start = (page - 1) * limit;
-            const end = start + limit;
-            const paginatedItems = mappedItems.slice(start, end);
-
-            records = {
-                items: paginatedItems, // уже замаппленные данные
-                total: mappedItems.length
-            };
-        } else {
-            // запрашиваем данные с сервера
-            const response = await fetch(`${BASE_URL}/records?${nextQuery}`);
-            if (!response.ok) {
-                throw new Error('Не удалось загрузить записи (records)');
-            }
-            records = await response.json();
+        // запрашиваем данные с сервера (с учётом фильтров и пагинации в query)
+        const response = await fetch(`${BASE_URL}/records?${nextQuery}`);
+        if (!response.ok) {
+            throw new Error('Не удалось загрузить записи (records)');
         }
+        const records = await response.json();
 
         const items = Array.isArray(records?.items) ? records.items : [];
         const total = Number(records?.total ?? items.length) || 0;
 
         lastQuery = nextQuery; // сохраняем для следующих запросов
-        
-        // Если данные уже замаплены (локальные данные), возвращаем как есть
-        // Иначе маппим данные
-        const finalItems = sourceData ? items : mapRecords(items);
-        
+
+        // данные всегда приходят с сервера и маппятся к формату таблицы
+        // а сортировку (по total/date) и фильтрацию по диапазону total выполняем на клиенте,
+        // чтобы не зависеть от реализации бэка
+        let finalItems = mapRecords(items);
+
+        // Клиентская фильтрация по totalFrom / totalTo:
+        // - totalFrom: значения меньше введенного не показываются (total >= from)
+        // - totalTo: значения больше введенного не показываются (total <= to)
+        const totalFrom = query.totalFrom != null ? Number(query.totalFrom) : null;
+        const totalTo = query.totalTo != null ? Number(query.totalTo) : null;
+
+        if (Number.isFinite(totalFrom)) {
+            finalItems = finalItems.filter((item) => Number(item.total) >= totalFrom);
+        }
+        if (Number.isFinite(totalTo)) {
+            finalItems = finalItems.filter((item) => Number(item.total) <= totalTo);
+        }
+
+        const sortParam = query.sort;
+        if (sortParam) {
+            const [sortField, sortOrder] = sortParam.split(':');
+            const fieldMap = {
+                'total_amount': 'total',
+                'date': 'date'
+            };
+            const mappedField = fieldMap[sortField] || sortField;
+            finalItems = sortCollection(finalItems, mappedField, sortOrder);
+        }
+
         lastResult = {
             total,
             items: finalItems
         };
-
-        return lastResult;
 
         return lastResult;
     };

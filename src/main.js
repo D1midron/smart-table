@@ -1,8 +1,6 @@
 import './fonts/ys-display/fonts.css'
 import './style.css'
 
-import {data as sourceData} from "./data/dataset_1.js";
-
 import {initData} from "./data.js";
 import {processFormData, cloneTemplate} from "./lib/utils.js";
 
@@ -13,8 +11,8 @@ import {initSearching} from "./components/searching.js";
 import {initSorting} from "./components/sorting.js";
 
 
-// Исходные данные используемые в render()
-const API = initData(sourceData);
+// Работаем только с данными с сервера
+const API = initData();
 
 /**
  * Сбор и обработка полей из таблицы
@@ -32,6 +30,11 @@ function collectState() {
     const selectedPage = paginationElements.container.querySelector('input[name="page"]:checked');
     if (selectedPage) {
         state.page = selectedPage.value;
+    }
+
+    // Добавляем значение глобального поиска (поле search находится вне формы таблицы)
+    if (searchElements.elements.search) {
+        state.search = searchElements.elements.search.value;
     }
 
     return {
@@ -112,6 +115,44 @@ appRoot.appendChild(paginationElements.container);
 
 // Добавляем фильтр в таблицу
 sampleTable.container.insertBefore(filterElements.container, sampleTable.container.querySelector('.table-content'));
+
+// Обработчик "Reset all filters" — сбрасывает глобальный поиск, фильтры, сортировку и пагинацию
+if (searchElements.elements.reset) {
+    searchElements.elements.reset.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        // 1. Сброс глобального поиска
+        if (searchElements.elements.search) {
+            searchElements.elements.search.value = '';
+        }
+
+        // 2. Сброс фильтров (дата, customer, seller, totalFrom/totalTo)
+        Object.values(filterElements.elements).forEach((el) => {
+            if (!el) return;
+            if (el.tagName === 'INPUT' || el.tagName === 'SELECT') {
+                if (el.type === 'radio' || el.type === 'checkbox') return;
+                el.value = '';
+            }
+        });
+
+        // 3. Сброс сортировки (оба столбца)
+        [sampleTable.elements.sortByDate, sampleTable.elements.sortByTotal]
+            .filter(Boolean)
+            .forEach((btn) => btn.setAttribute('data-value', 'none'));
+
+        // 4. Сброс пагинации: первая страница, дефолтное число строк (10)
+        if (paginationElements.elements.rowsPerPage) {
+            paginationElements.elements.rowsPerPage.value = '10';
+        }
+        const firstPageInput = paginationElements.container.querySelector('input[name="page"][value="1"]');
+        if (firstPageInput) {
+            firstPageInput.checked = true;
+        }
+
+        // Перерисовываем таблицу с "чистым" состоянием
+        render(e.target);
+    });
+}
 
 // Добавляем обработчики для элементов пагинации, так как они находятся вне формы таблицы
 if (paginationElements.elements.rowsPerPage) {
