@@ -1,16 +1,22 @@
 export function initFiltering(elements) {
     const updateIndexes = (elements, indexes) => {
         Object.keys(indexes).forEach((elementName) => {
-            if (elements[elementName] && elements[elementName].tagName === 'SELECT') {
-                elements[elementName].append(...Object.values(indexes[elementName]).map(name => {
-                    const el = document.createElement('option');
-                    el.textContent = name;
-                    el.value = name;
-                    return el;
-                }))
-            }
+            elements[elementName].append(...Object.values(indexes[elementName]).map(name => {
+                const el = document.createElement('option');
+                el.textContent = name;
+                el.value = name;
+                return el;
+            }))
         })
     }
+
+    const parseNumber = (value) => {
+        if (value == null) return null;
+        const normalized = String(value).trim().replace(/\s+/g, '').replace(',', '.');
+        if (!normalized) return null;
+        const num = Number(normalized);
+        return Number.isFinite(num) ? num : null;
+    };
 
     const applyFiltering = (query, state, action) => {
         // код с обработкой очистки поля
@@ -25,7 +31,7 @@ export function initFiltering(elements) {
         }
 
         // @todo: #4.5 — отфильтровать данные, используя компаратор
-        const filter = {};
+         const filter = {};
         Object.keys(elements).forEach(key => {
             if (elements[key]) {
                 if (['INPUT', 'SELECT'].includes(elements[key].tagName) && elements[key].value) { // ищем поля ввода в фильтре с непустыми данными
@@ -41,4 +47,4 @@ export function initFiltering(elements) {
         updateIndexes,
         applyFiltering
     }
-}
+} 

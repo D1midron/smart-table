@@ -30,6 +30,13 @@ export function initSorting(columns) {
 
         const apiField = field ? (fieldMap[field] ?? field) : null;
 
+        // В UI стрелка "вверх" должна сортировать от большего к меньшему (убывание),
+        // а стрелка "вниз" — от меньшего к большему (возрастание).
+        // В нашей sortMap 'up' = возрастание, 'down' = убывание, поэтому инвертируем для total.
+        if (field === 'total' && order && order !== 'none') {
+            order = (order === 'up') ? 'down' : 'up';
+        }
+
         return (apiField && order !== 'none')
             ? Object.assign({}, query, { sort: `${apiField}:${order}` })
             : query;
